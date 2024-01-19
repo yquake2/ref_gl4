@@ -15,9 +15,6 @@ Type `make` to compile the library. If the compilation is successfull,
 the library can be found under *release/ref_gl4.dll* (Windows) or
 *release/ref_gl4.so* (unixoid systems).
 
-You can also use the provided CMakeLists file to build using Visual Studio on Windows.
-
-
 ## Usage
 
 Copy the library next to your Yamagi Quake II executable. You can select
