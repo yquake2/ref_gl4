@@ -44,6 +44,9 @@ WITH_OPENAL:=yes
 # or libopenal.so. Not supported on Windows.
 WITH_RPATH:=yes
 
+# Builds with SDL 3 instead of SDL 2.
+WITH_SDL3:=no
+
 # Enable systemwide installation of game assets.
 WITH_SYSTEMWIDE:=no
 
@@ -262,7 +265,12 @@ endif
 # ----------
 
 # Extra CFLAGS for SDL.
+ifeq ($(WITH_SDL3),yes)
+SDLCFLAGS := $(shell pkgconf --cflags sdl3)
+SDLCFLAGS += -DUSE_SDL3
+else
 SDLCFLAGS := $(shell sdl2-config --cflags)
+endif
 
 # ----------
 
@@ -339,11 +347,19 @@ endif
 # ----------
 
 # Extra LDFLAGS for SDL
+ifeq ($(WITH_SDL3),yes)
+ifeq ($(YQ2_OSTYPE), Darwin)
+SDLLDFLAGS := -lSDL3
+else
+SDLLDFLAGS := $(shell pkgconf --libs sdl3)
+endif
+else
 ifeq ($(YQ2_OSTYPE), Darwin)
 SDLLDFLAGS := -lSDL2
-else # not Darwin
+else
 SDLLDFLAGS := $(shell sdl2-config --libs)
-endif # Darwin
+endif
+endif
 
 # The renderer libs don't need libSDL2main, libmingw32 or -mwindows.
 ifeq ($(YQ2_OSTYPE), Windows)
