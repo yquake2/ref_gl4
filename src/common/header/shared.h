@@ -30,6 +30,7 @@
 #ifndef COMMON_SHARED_H
 #define COMMON_SHARED_H
 
+#include <stdbool.h>
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -46,7 +47,7 @@
  #undef false
 #endif
 
-typedef enum {false, true}  qboolean;
+typedef bool qboolean;
 typedef unsigned char byte;
 
 #ifndef NULL
