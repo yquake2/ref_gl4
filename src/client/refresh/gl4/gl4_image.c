@@ -25,7 +25,6 @@
  * =======================================================================
  */
 
-#include <stdbool.h>
 #include "header/local.h"
 
 typedef struct

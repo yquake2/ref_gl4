@@ -25,8 +25,6 @@
  * =======================================================================
  */
 
-#include <stdbool.h>
-
 #ifndef SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_
 #define SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_
 

@@ -39,14 +39,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-#ifdef true
- #undef true
-#endif
-
-#ifdef false
- #undef false
-#endif
-
 typedef bool qboolean;
 typedef unsigned char byte;
 
