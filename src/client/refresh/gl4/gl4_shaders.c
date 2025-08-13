@@ -1317,6 +1317,25 @@ qboolean GL4_RecreateShaders(void)
 	return createShaders();
 }
 
+#ifdef _WIN32
+// atsb: update this more efficently, ensure nothing is done 'the slow way'
+static inline void
+updateUBO(GLuint ubo, GLsizeiptr size, void* data)
+{
+    if (gl4state.currentUBO != ubo) {
+        gl4state.currentUBO = ubo;
+        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+    }
+    void* dst = glMapBufferRange(GL_UNIFORM_BUFFER, 0, size,
+        GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    if (dst) {
+        memcpy(dst, data, size);
+        glUnmapBuffer(GL_UNIFORM_BUFFER);
+    } else {
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, size, data);
+    }
+}
+#else
 static inline void
 updateUBO(GLuint ubo, GLsizeiptr size, void* data)
 {
@@ -1343,6 +1362,7 @@ updateUBO(GLuint ubo, GLsizeiptr size, void* data)
 	memcpy(ptr, data, size);
 	glUnmapBuffer(GL_UNIFORM_BUFFER);
 }
+#endif
 
 void GL4_UpdateUBOCommon(void)
 {
