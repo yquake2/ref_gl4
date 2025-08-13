@@ -25,6 +25,8 @@
  * =======================================================================
  */
 
+#include <stdint.h>
+#include <inttypes.h>
 #include "header/local.h"
 
 unsigned d_8to24table[256];
@@ -349,65 +351,70 @@ GL4_Draw_FadeScreen(void)
 	GL4_Draw_Flash(color, 0, 0, vid.width, vid.height);
 }
 
+static
+void GL4_PaletteExpandWorker(int row_start, int row_end, void* user)
+{
+    GL4_PalExpandCtx* ctx = (GL4_PalExpandCtx*)user;
+    const int cols = ctx->cols;
+
+    for (int i = row_start; i < row_end; ++i) {
+        const int rowOffset = i * cols;
+        const byte* __restrict src = &ctx->data[rowOffset];
+        unsigned*   __restrict dst = &ctx->img[rowOffset];
+        for (int j = 0; j < cols; ++j) {
+            dst[j] = gl4_rawpalette[src[j]];
+        }
+    }
+}
+
 void
 GL4_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *data, int bits)
 {
-	int i, j;
+    GL4_Bind(0);
 
-	GL4_Bind(0);
+    unsigned image32[320*240];
+    unsigned* img = image32;
 
-	unsigned image32[320*240]; /* was 256 * 256, but we want a bit more space */
+    if (bits == 32) {
+        img = (unsigned*)data;
+    } else {
+        const size_t pxCount = (size_t)cols * (size_t)rows;
+        if (pxCount > (size_t)320 * (size_t)240) {
+            img = (unsigned*)malloc(pxCount * sizeof(unsigned));
+            if (!img) {
+                uintptr_t need = (uintptr_t)(pxCount * sizeof(unsigned));
+                R_Printf(PRINT_ALL, "GL4_Draw_StretchRaw: malloc(%" PRIuPTR ") failed\n", need);
+                return;
+            }
+        }
 
-	unsigned* img = image32;
+        GL4_PalExpandCtx ctx = { data, img, cols };
 
-	if (bits == 32)
-	{
-		img = (unsigned *)data;
-	}
-	else
-	{
-		if(cols*rows > 320*240)
-		{
-			/* in case there is a bigger video after all,
-			 * malloc enough space to hold the frame */
-			img = (unsigned*)malloc(cols*rows*4);
-		}
+        // atsb: parallel workers, ensure that work is done without idling
+        GL4_ParallelTasks(rows, 32, GL4_PaletteExpandWorker, &ctx);
+    }
 
-		for(i=0; i<rows; ++i)
-		{
-			int rowOffset = i*cols;
-			for(j=0; j<cols; ++j)
-			{
-				byte palIdx = data[rowOffset+j];
-				img[rowOffset+j] = gl4_rawpalette[palIdx];
-			}
-		}
-	}
+    GL4_UseProgram(gl4state.si2D.shaderProgram);
 
-	GL4_UseProgram(gl4state.si2D.shaderProgram);
+    GLuint glTex;
+    glGenTextures(1, &glTex);
+    GL4_SelectTMU(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, glTex);
 
-	GLuint glTex;
-	glGenTextures(1, &glTex);
-	GL4_SelectTMU(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, glTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, gl4_tex_solid_format,
+                 cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
 
-	glTexImage2D(GL_TEXTURE_2D, 0, gl4_tex_solid_format,
-	             cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
+    if (img != image32 && img != (unsigned *)data) {
+        free(img);
+    }
 
-	if(img != image32 && img != (unsigned *)data)
-	{
-		free(img);
-	}
+    GLint filter = (r_videos_unfiltered->value == 0) ? gl_filter_max : GL_NEAREST;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
 
-	// Note: gl_filter_min could be GL_*_MIPMAP_* so we can't use it for min filter here (=> no mipmaps)
-	//       but gl_filter_max (either GL_LINEAR or GL_NEAREST) should do the trick.
-	GLint filter = (r_videos_unfiltered->value == 0) ? gl_filter_max : GL_NEAREST;
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    drawTexturedRectangle(x, y, w, h, 0.0f, 0.0f, 1.0f, 1.0f);
 
-	drawTexturedRectangle(x, y, w, h, 0.0f, 0.0f, 1.0f, 1.0f);
+    glDeleteTextures(1, &glTex);
 
-	glDeleteTextures(1, &glTex);
-
-	GL4_Bind(0);
+    GL4_Bind(0);
 }

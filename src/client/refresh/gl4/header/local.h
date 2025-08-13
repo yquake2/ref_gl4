@@ -28,6 +28,10 @@
 #ifndef SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_
 #define SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_
 
+#ifdef WIN32
+#include <windows.h>
+#endif
+
 #ifdef IN_IDE_PARSER
   // this is just a hack to get proper auto-completion in IDEs:
   // using system headers for their parsers/indexers but glad for real build
@@ -272,6 +276,35 @@ typedef struct
 	hmm_mat4 viewMat3D;
 } gl4state_t;
 
+// atsb structs
+typedef struct {
+    int row_start, row_end;
+    void* user;
+    void (*fn)(int, int, void*);
+} GL4_RowJob;
+
+typedef struct {
+    const byte* data;
+    unsigned*   img;
+    int cols;
+} GL4_PalExpandCtx;
+
+typedef struct part_vtx {
+    GLfloat pos[3];
+    GLfloat size;
+    GLfloat dist;
+    GLfloat color[4];
+} part_vtx;
+
+typedef struct {
+    const particle_t* particles;
+    part_vtx*         out;
+    int               count;
+    vec3_t            viewOrg;
+    float             pointSize;
+} GL4_ParticlesCtx;
+// end atsb structs
+
 extern gl4config_t gl4config;
 extern gl4state_t gl4state;
 
@@ -426,7 +459,7 @@ extern void GL4_Draw_Fill(int x, int y, int w, int h, int c);
 extern void GL4_Draw_FadeScreen(void);
 extern void GL4_Draw_Flash(const float color[4], float x, float y, float w, float h);
 extern void GL4_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *data, int bits);
-
+extern void GL4_ParallelTasks(int rows, int min_rows_per_task, void (*fn)(int,int,void*), void* user);
 // gl4_image.c
 
 static inline void

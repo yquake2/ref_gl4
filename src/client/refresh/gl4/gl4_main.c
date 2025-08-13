@@ -691,6 +691,7 @@ GL4_Shutdown(void)
 // assumes gl4state.v[ab]o3D are bound
 // buffers and draws gl4_3D_vtx_t vertices
 // drawMode is something like GL_TRIANGLE_STRIP or GL_TRIANGLE_FAN or whatever
+// atsb: made more efficient by removing invalid flags
 void
 GL4_BufferAndDraw3D(const gl4_3D_vtx_t* verts, int numVerts, GLenum drawMode)
 {
@@ -699,7 +700,7 @@ GL4_BufferAndDraw3D(const gl4_3D_vtx_t* verts, int numVerts, GLenum drawMode)
 		glBufferData( GL_ARRAY_BUFFER, sizeof(gl4_3D_vtx_t)*numVerts, verts, GL_STREAM_DRAW );
 		glDrawArrays( drawMode, 0, numVerts );
 	}
-	else // gl4config.useBigVBO == true
+	else
 	{
 		int curOffset = gl4state.vbo3DcurOffset;
 		int neededSize = numVerts * sizeof(gl4_3D_vtx_t);
@@ -935,86 +936,80 @@ GL4_DrawNullModel(entity_t *currententity)
 static void
 GL4_DrawParticles(void)
 {
-	// TODO: stereo
-	//qboolean stereo_split_tb = ((gl_state.stereo_mode == STEREO_SPLIT_VERTICAL) && gl_state.camera_separation);
-	//qboolean stereo_split_lr = ((gl_state.stereo_mode == STEREO_SPLIT_HORIZONTAL) && gl_state.camera_separation);
+    int numParticles = gl4_newrefdef.num_particles;
 
-	//if (!(stereo_split_tb || stereo_split_lr))
-	{
-		int i;
-		int numParticles = gl4_newrefdef.num_particles;
-		YQ2_ALIGNAS_TYPE(unsigned) byte color[4];
-		const particle_t *p;
-		// assume the size looks good with window height 480px and scale according to real resolution
-		float pointSize = gl4_particle_size->value * (float)gl4_newrefdef.height/480.0f;
+    if (numParticles == 0) {
+        return;
+    }
 
-		typedef struct part_vtx {
-			GLfloat pos[3];
-			GLfloat size;
-			GLfloat dist;
-			GLfloat color[4];
-		} part_vtx;
-		YQ2_STATIC_ASSERT(sizeof(part_vtx)==9*sizeof(float), "invalid part_vtx size"); // remember to update GL4_SurfInit() if this changes!
+    YQ2_STATIC_ASSERT(sizeof(part_vtx)==9*sizeof(float), "invalid part_vtx size");
+    YQ2_VLA(part_vtx, buf, numParticles);
 
-		// Don't try to draw particles if there aren't any.
-		if (numParticles == 0)
-		{
-			return;
-		}
+    vec3_t viewOrg;
+    VectorCopy(gl4_newrefdef.vieworg, viewOrg);
 
-		YQ2_VLA(part_vtx, buf, numParticles);
+    GL4_ParticlesCtx ctx;
+    ctx.particles = gl4_newrefdef.particles;
+    ctx.out       = buf;
+    ctx.count     = numParticles;
+    VectorCopy(viewOrg, ctx.viewOrg);
 
-		// TODO: viewOrg could be in UBO
-		vec3_t viewOrg;
-		VectorCopy(gl4_newrefdef.vieworg, viewOrg);
+    ctx.pointSize = gl4_particle_size->value * (float)gl4_newrefdef.height / 480.0f;
 
-		glDepthMask(GL_FALSE);
-		glEnable(GL_BLEND);
+    //atsb: parallel workers
+    void worker(int start, int end, void* user) {
+        GL4_ParticlesCtx* c = (GL4_ParticlesCtx*)user;
+        const particle_t* P = c->particles;
+        part_vtx*         V = c->out;
+        const vec3_t      VO = { c->viewOrg[0], c->viewOrg[1], c->viewOrg[2] };
+        const float       ps = c->pointSize;
+
+        for (int i = start; i < end; ++i) {
+            const particle_t* p = &P[i];
+            part_vtx*         v = &V[i];
+
+            VectorCopy(p->origin, v->pos);
+            v->size = ps;
+            vec3_t off; VectorSubtract(VO, p->origin, off);
+            v->dist = VectorLength(off);
+
+            unsigned rgba = d_8to24table[p->color & 0xFF];
+            v->color[0] = (float)( rgba        & 0xFF) * (1.0f/255.0f);
+            v->color[1] = (float)((rgba >> 8 ) & 0xFF) * (1.0f/255.0f);
+            v->color[2] = (float)((rgba >> 16) & 0xFF) * (1.0f/255.0f);
+            v->color[3] = p->alpha;
+        }
+    }
+
+	// atsb: parallel runs again here, particles are all CPU driven still, and these are everywhere
+    GL4_ParallelTasks(numParticles, 1024, worker, &ctx);
+
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
 
 #ifdef YQ2_GL3_GLES
-		// the RPi4 GLES3 implementation doesn't draw particles if culling is
-		// enabled (at least with GL_FRONT which seems to be default in q2?)
-		glDisable(GL_CULL_FACE);
+    glDisable(GL_CULL_FACE);
 #else
-		// GLES doesn't have this, maybe it's always enabled? (https://gamedev.stackexchange.com/a/15528 says it works)
-		// luckily we don't use glPointSize() but set gl_PointSize in shader anyway
-		glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_PROGRAM_POINT_SIZE);
 #endif
 
-		GL4_UseProgram(gl4state.siParticle.shaderProgram);
+    GL4_UseProgram(gl4state.siParticle.shaderProgram);
 
-		for ( i = 0, p = gl4_newrefdef.particles; i < numParticles; i++, p++ )
-		{
-			*(int *) color = d_8to24table [ p->color & 0xFF ];
-			part_vtx* cur = &buf[i];
-			vec3_t offset; // between viewOrg and particle position
-			VectorSubtract(viewOrg, p->origin, offset);
+    GL4_BindVAO(gl4state.vaoParticle);
+    GL4_BindVBO(gl4state.vboParticle);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(sizeof(part_vtx) * (size_t)numParticles), buf, GL_STREAM_DRAW);
+    glDrawArrays(GL_POINTS, 0, numParticles);
 
-			VectorCopy(p->origin, cur->pos);
-			cur->size = pointSize;
-			cur->dist = VectorLength(offset);
-
-			for(int j=0; j<3; ++j)  cur->color[j] = color[j]*(1.0f/255.0f);
-
-			cur->color[3] = p->alpha;
-		}
-
-		GL4_BindVAO(gl4state.vaoParticle);
-		GL4_BindVBO(gl4state.vboParticle);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(part_vtx)*numParticles, buf, GL_STREAM_DRAW);
-		glDrawArrays(GL_POINTS, 0, numParticles);
-
-		glDisable(GL_BLEND);
-		glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
 #ifdef YQ2_GL3_GLES
-		if(r_cull->value != 0.0f)
-			glEnable(GL_CULL_FACE);
+    if(r_cull->value != 0.0f)
+        glEnable(GL_CULL_FACE);
 #else
-		glDisable(GL_PROGRAM_POINT_SIZE);
+    glDisable(GL_PROGRAM_POINT_SIZE);
 #endif
 
-		YQ2_VLAFREE(buf);
-	}
+    YQ2_VLAFREE(buf);
 }
 
 static void
@@ -1702,15 +1697,21 @@ GL4_SetLightLevel(entity_t *currententity)
 	}
 }
 
+//atsb: made more efficient by invalidating any remaining attachments that clog up the buffer
 static void
 GL4_RenderFrame(refdef_t *fd)
 {
 	GL4_RenderView(fd);
 	GL4_SetLightLevel(NULL);
-	qboolean usedFBO = gl4state.ppFBObound; // if it was/is used this frame
+	qboolean usedFBO = gl4state.ppFBObound;
 	if(usedFBO)
 	{
-		glBindFramebuffer(GL_FRAMEBUFFER, 0); // now render to default framebuffer
+		const GLenum att[2] = {
+			GL_COLOR_ATTACHMENT0,
+			GL_DEPTH_STENCIL_ATTACHMENT
+		};
+    	glInvalidateFramebuffer(GL_FRAMEBUFFER, 2, att);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		gl4state.ppFBObound = false;
 	}
 	GL4_SetGL2D();
@@ -1719,7 +1720,6 @@ GL4_RenderFrame(refdef_t *fd)
 	int y = (vid.height - gl4_newrefdef.height)/2;
 	if (usedFBO)
 	{
-		// if we're actually drawing the world and using an FBO, render the FBO's texture
 		GL4_DrawFrameBufferObject(x, y, gl4_newrefdef.width, gl4_newrefdef.height, gl4state.ppFBtex, v_blend);
 	}
 	else if(v_blend[3] != 0.0f)
@@ -1727,7 +1727,6 @@ GL4_RenderFrame(refdef_t *fd)
 		GL4_Draw_Flash(v_blend, x, y, gl4_newrefdef.width, gl4_newrefdef.height);
 	}
 }
-
 
 static void
 GL4_Clear(void)

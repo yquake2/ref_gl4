@@ -314,21 +314,21 @@ endif
 
 # Required libraries.
 ifeq ($(YQ2_OSTYPE),Linux)
-LDLIBS ?= -lm -ldl -rdynamic
+LDLIBS ?= -lm -ldl -rdynamic -pthread
 else ifeq ($(YQ2_OSTYPE),FreeBSD)
-LDLIBS ?= -lm
+LDLIBS ?= -lm -pthread
 else ifeq ($(YQ2_OSTYPE),NetBSD)
-LDLIBS ?= -lm
+LDLIBS ?= -lm -pthread
 else ifeq ($(YQ2_OSTYPE),OpenBSD)
-LDLIBS ?= -lm
+LDLIBS ?= -lm -pthread
 else ifeq ($(YQ2_OSTYPE),Windows)
-LDLIBS ?= -lws2_32 -lwinmm -static-libgcc
+LDLIBS ?= -lws2_32 -lwinmm -static-libgcc -lkernel32
 else ifeq ($(YQ2_OSTYPE), Darwin)
 LDLIBS ?= -arch $(YQ2_ARCH)
 else ifeq ($(YQ2_OSTYPE), Haiku)
 LDLIBS ?= -lm -lnetwork
 else ifeq ($(YQ2_OSTYPE), SunOS)
-LDLIBS ?= -lm -lsocket -lnsl
+LDLIBS ?= -lm -lsocket -lnsl -pthread
 endif
 
 # ASAN and UBSAN must not be linked
@@ -442,6 +442,7 @@ REFGL4_OBJS_ := \
 	src/client/refresh/gl4/gl4_surf.o \
 	src/client/refresh/gl4/gl4_warp.o \
 	src/client/refresh/gl4/gl4_shaders.o \
+	src/client/refresh/gl4/gl4_threads.o \
 	src/client/refresh/files/surf.o \
 	src/client/refresh/files/models.o \
 	src/client/refresh/files/pcx.o \
