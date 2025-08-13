@@ -503,153 +503,180 @@ static const char* fragmentSrc3Dwater = MULTILINE_STRING(
 );
 
 static const char* fragmentSrc3Dlm = MULTILINE_STRING(
-        struct DynLight {
-            vec3 lightOrigin;
-            float _pad;
-            vec4 lightColor;
-        };
 
-        layout (std140) uniform uniLights
-        {
-            DynLight dynLights[32];
-            uint numDynLights;
-            uint _pad1; uint _pad2; uint _pad3;
-        };
+		// it gets attributes and uniforms from fragmentCommon3D
 
-        uniform sampler2D tex;
+		struct DynLight { // gl4UniDynLight in C
+			vec3 lightOrigin;
+			float _pad;
+			//vec3 lightColor;
+			//float lightIntensity;
+			vec4 lightColor; // .a is intensity; this way it also works on OSX...
+			// (otherwise lightIntensity always contained 1 there)
+		};
 
-        uniform sampler2D lightmap0;
-        uniform sampler2D lightmap1;
-        uniform sampler2D lightmap2;
-        uniform sampler2D lightmap3;
+		layout (std140) uniform uniLights
+		{
+			DynLight dynLights[32];
+			uint numDynLights;
+			uint _pad1; uint _pad2; uint _pad3; // FFS, AMD!
+		};
 
-        uniform vec4 lmScales[4];
+		uniform sampler2D tex;
 
-        in vec2 passLMcoord;
-        in vec3 passWorldCoord;
-        in vec3 passNormal;
-        flat in uint passLightFlags;
+		uniform sampler2D lightmap0;
+		uniform sampler2D lightmap1;
+		uniform sampler2D lightmap2;
+		uniform sampler2D lightmap3;
 
-        uint lsbIndex(uint m)
-        {
-            return findLSB(m);
-        }
+		uniform vec4 lmScales[4];
 
-        void main()
-        {
-            vec4 texel = texture(tex, passTexCoord);
-            texel.rgb *= intensity;
+		in vec2 passLMcoord;
+		in vec3 passWorldCoord;
+		in vec3 passNormal;
+		flat in uint passLightFlags;
 
-            vec4 lmTex = texture(lightmap0, passLMcoord) * lmScales[0];
-            lmTex     += texture(lightmap1, passLMcoord) * lmScales[1];
-            lmTex     += texture(lightmap2, passLMcoord) * lmScales[2];
-            lmTex     += texture(lightmap3, passLMcoord) * lmScales[3];
+		void main()
+		{
+			vec4 texel = texture(tex, passTexCoord);
 
-            if(passLightFlags != 0u)
-            {
-                uint mask = passLightFlags;
-                while (mask != 0u)
-                {
-                    uint i = lsbIndex(mask);
-                    mask &= (mask - 1u);
+			// apply intensity
+			texel.rgb *= intensity;
 
-                    if (i >= numDynLights) { continue; }
+			// apply lightmap
+			vec4 lmTex = texture(lightmap0, passLMcoord) * lmScales[0];
+			lmTex     += texture(lightmap1, passLMcoord) * lmScales[1];
+			lmTex     += texture(lightmap2, passLMcoord) * lmScales[2];
+			lmTex     += texture(lightmap3, passLMcoord) * lmScales[3];
 
-                    float intens = dynLights[i].lightColor.a;
+			if(passLightFlags != 0u)
+			{
+				// TODO: or is hardcoding 32 better?
+				for(uint i=0u; i<numDynLights; ++i)
+				{
+					// I made the following up, it's probably not too cool..
+					// it basically checks if the light is on the right side of the surface
+					// and, if it is, sets intensity according to distance between light and pixel on surface
 
-                    vec3 lightToPos = dynLights[i].lightOrigin - passWorldCoord;
-                    float distLightToPos = length(lightToPos);
-                    float fact = max(0.0, intens - distLightToPos - 52.0);
+					// dyn light number i does not affect this plane, just skip it
+					if((passLightFlags & (1u << i)) == 0u)  continue;
 
-                    lightToPos += passNormal*32.0;
-                    fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
+					float intens = dynLights[i].lightColor.a;
 
-                    lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
-                }
-            }
+					vec3 lightToPos = dynLights[i].lightOrigin - passWorldCoord;
+					float distLightToPos = length(lightToPos);
+					float fact = max(0.0, intens - distLightToPos - 52.0);
 
-            lmTex.rgb *= overbrightbits;
-            outColor = lmTex*texel;
-            outColor.rgb = pow(outColor.rgb, vec3(gamma));
+					// move the light source a bit further above the surface
+					// => helps if the lightsource is so close to the surface (e.g. grenades, rockets)
+					//    that the dot product below would return 0
+					// (light sources that are below the surface are filtered out by lightFlags)
+					lightToPos += passNormal*32.0;
 
-            outColor.a = 1.0;
-        }
+					// also factor in angle between light and point on surface
+					fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
+
+
+					lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
+				}
+			}
+
+			lmTex.rgb *= overbrightbits;
+			outColor = lmTex*texel;
+			outColor.rgb = pow(outColor.rgb, vec3(gamma)); // apply gamma correction to result
+
+			outColor.a = 1.0; // lightmaps aren't used with translucent surfaces
+		}
 );
 
 static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
-        struct DynLight {
-            vec3 lightOrigin;
-            float _pad;
-            vec4 lightColor;
-        };
 
-        layout (std140) uniform uniLights
-        {
-            DynLight dynLights[32];
-            uint numDynLights;
-            uint _pad1; uint _pad2; uint _pad3;
-        };
+		// it gets attributes and uniforms from fragmentCommon3D
 
-        uniform sampler2D tex;
+		struct DynLight { // gl4UniDynLight in C
+			vec3 lightOrigin;
+			float _pad;
+			//vec3 lightColor;
+			//float lightIntensity;
+			vec4 lightColor; // .a is intensity; this way it also works on OSX...
+			// (otherwise lightIntensity always contained 1 there)
+		};
 
-        uniform sampler2D lightmap0;
-        uniform sampler2D lightmap1;
-        uniform sampler2D lightmap2;
-        uniform sampler2D lightmap3;
+		layout (std140) uniform uniLights
+		{
+			DynLight dynLights[32];
+			uint numDynLights;
+			uint _pad1; uint _pad2; uint _pad3; // FFS, AMD!
+		};
 
-        uniform vec4 lmScales[4];
+		uniform sampler2D tex;
 
-        in vec2 passLMcoord;
-        in vec3 passWorldCoord;
-        in vec3 passNormal;
-        flat in uint passLightFlags;
+		uniform sampler2D lightmap0;
+		uniform sampler2D lightmap1;
+		uniform sampler2D lightmap2;
+		uniform sampler2D lightmap3;
 
-        uint lsbIndex(uint m)
-        {
-            return findLSB(m);
-        }
+		uniform vec4 lmScales[4];
 
-        void main()
-        {
-            vec4 texel = texture(tex, passTexCoord);
-            texel.rgb *= intensity;
+		in vec2 passLMcoord;
+		in vec3 passWorldCoord;
+		in vec3 passNormal;
+		flat in uint passLightFlags;
 
-            vec4 lmTex = texture(lightmap0, passLMcoord) * lmScales[0];
-            lmTex     += texture(lightmap1, passLMcoord) * lmScales[1];
-            lmTex     += texture(lightmap2, passLMcoord) * lmScales[2];
-            lmTex     += texture(lightmap3, passLMcoord) * lmScales[3];
+		void main()
+		{
+			vec4 texel = texture(tex, passTexCoord);
 
-            if(passLightFlags != 0u)
-            {
-                uint mask = passLightFlags;
-                while (mask != 0u)
-                {
-                    uint i = lsbIndex(mask);
-                    mask &= (mask - 1u);
+			// apply intensity
+			texel.rgb *= intensity;
 
-                    if (i >= numDynLights) { continue; }
+			// apply lightmap
+			vec4 lmTex = texture(lightmap0, passLMcoord) * lmScales[0];
+			lmTex     += texture(lightmap1, passLMcoord) * lmScales[1];
+			lmTex     += texture(lightmap2, passLMcoord) * lmScales[2];
+			lmTex     += texture(lightmap3, passLMcoord) * lmScales[3];
 
-                    float intens = dynLights[i].lightColor.a;
+			if(passLightFlags != 0u)
+			{
+				// TODO: or is hardcoding 32 better?
+				for(uint i=0u; i<numDynLights; ++i)
+				{
+					// I made the following up, it's probably not too cool..
+					// it basically checks if the light is on the right side of the surface
+					// and, if it is, sets intensity according to distance between light and pixel on surface
 
-                    vec3 lightToPos = dynLights[i].lightOrigin - passWorldCoord;
-                    float distLightToPos = length(lightToPos);
-                    float fact = max(0.0, intens - distLightToPos - 52.0);
+					// dyn light number i does not affect this plane, just skip it
+					if((passLightFlags & (1u << i)) == 0u)  continue;
 
-                    lightToPos += passNormal*32.0;
-                    fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
+					float intens = dynLights[i].lightColor.a;
 
-                    lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
-                }
-            }
+					vec3 lightToPos = dynLights[i].lightOrigin - passWorldCoord;
+					float distLightToPos = length(lightToPos);
+					float fact = max(0.0, intens - distLightToPos - 52.0);
 
-            lmTex.rgb = vec3(0.333 * (lmTex.r+lmTex.g+lmTex.b));
+					// move the light source a bit further above the surface
+					// => helps if the lightsource is so close to the surface (e.g. grenades, rockets)
+					//    that the dot product below would return 0
+					// (light sources that are below the surface are filtered out by lightFlags)
+					lightToPos += passNormal*32.0;
 
-            lmTex.rgb *= overbrightbits;
-            outColor = lmTex*texel;
-            outColor.rgb = pow(outColor.rgb, vec3(gamma));
+					// also factor in angle between light and point on surface
+					fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
 
-            outColor.a = 1;
-        }
+
+					lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
+				}
+			}
+
+			// turn lightcolor into grey for gl4_colorlight 0
+			lmTex.rgb = vec3(0.333 * (lmTex.r+lmTex.g+lmTex.b));
+
+			lmTex.rgb *= overbrightbits;
+			outColor = lmTex*texel;
+			outColor.rgb = pow(outColor.rgb, vec3(gamma)); // apply gamma correction to result
+
+			outColor.a = 1; // lightmaps aren't used with translucent surfaces
+		}
 );
 
 static const char* fragmentSrc3Dcolor = MULTILINE_STRING(
@@ -1290,22 +1317,31 @@ qboolean GL4_RecreateShaders(void)
 	return createShaders();
 }
 
-// atsb: update this more efficently, ensure nothing is done 'the slow way'
 static inline void
 updateUBO(GLuint ubo, GLsizeiptr size, void* data)
 {
-    if (gl4state.currentUBO != ubo) {
-        gl4state.currentUBO = ubo;
-        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-    }
-    void* dst = glMapBufferRange(GL_UNIFORM_BUFFER, 0, size,
-        GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
-    if (dst) {
-        memcpy(dst, data, size);
-        glUnmapBuffer(GL_UNIFORM_BUFFER);
-    } else {
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, size, data);
-    }
+	if(gl4state.currentUBO != ubo)
+	{
+		gl4state.currentUBO = ubo;
+		glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+	}
+
+	/*
+		atsb: faster in 4.6 and we can use glMapBufferRange to update the entire buffer at once from the beginning.
+		we don't need to use glBindBufferRange and we can leave that alone for now.
+	*/
+	glBufferData(GL_UNIFORM_BUFFER, size, NULL, GL_STREAM_DRAW); // atsb: GL_STREAM_DRAW
+	
+	/*
+		atsb: we use GL_MAP_WRITE_BIT here to ensure synchronisation between CPU/GPU
+		and to prevent any possible data races in cases of sync loss.
+		
+		we don't use the persistent mapping feature yet as that would require
+		a bit more work with how the buffers are created and mapped.
+	*/
+	GLvoid* ptr = glMapBufferRange(GL_UNIFORM_BUFFER, 0, size, GL_MAP_WRITE_BIT);
+	memcpy(ptr, data, size);
+	glUnmapBuffer(GL_UNIFORM_BUFFER);
 }
 
 void GL4_UpdateUBOCommon(void)
