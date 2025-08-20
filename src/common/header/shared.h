@@ -30,7 +30,6 @@
 #ifndef COMMON_SHARED_H
 #define COMMON_SHARED_H
 
-#include <stdbool.h>
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -39,7 +38,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-typedef bool qboolean;
+typedef int qboolean;
 typedef unsigned char byte;
 
 #ifndef NULL
