@@ -36,6 +36,7 @@
 #include <windows.h>
 #else
 #include <pthread.h>
+#include <unistd.h>
 #endif
 
 static unsigned GL4_NumHWThreads(void) {
@@ -49,7 +50,6 @@ static unsigned GL4_NumHWThreads(void) {
     if (n > GL4_MAX_THREADS) n = GL4_MAX_THREADS;
     return n;
 #else
-    #include <unistd.h>
     long n = sysconf(_SC_NPROCESSORS_ONLN);
     unsigned u = (n > 0) ? (unsigned)n : 1u;
     if (u > GL4_MAX_THREADS) u = GL4_MAX_THREADS;
