@@ -27,6 +27,7 @@
 #ifndef SRC_CLIENT_REFRESH_REF_SHARED_H_
 #define SRC_CLIENT_REFRESH_REF_SHARED_H_
 
+#include <stdbool.h>
 #include "../vid/header/ref.h"
 
 #ifdef _MSC_VER

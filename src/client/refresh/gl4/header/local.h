@@ -28,6 +28,8 @@
 #ifndef SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_
 #define SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_
 
+#include <stdbool.h>
+
 #ifdef WIN32
 #include <windows.h>
 #endif
