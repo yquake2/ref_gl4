@@ -454,7 +454,7 @@ extern gl4image_t * GL4_Draw_FindPic(char *name);
 extern void GL4_Draw_GetPicSize(int *w, int *h, char *pic);
 
 extern void GL4_Draw_PicScaled(int x, int y, char *pic, float factor);
-extern void GL4_Draw_PicScaledCol(int x, int y, char *pic, float factor, float color[3]);
+extern void GL4_Draw_PicScaledCol(int x, int y, const char *pic, float factor, const float color[3]);
 extern void GL4_Draw_StretchPic(int x, int y, int w, int h, char *pic);
 extern void GL4_Draw_CharScaled(int x, int y, int num, float scale);
 extern void GL4_Draw_TileClear(int x, int y, int w, int h, char *pic);

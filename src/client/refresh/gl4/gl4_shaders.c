@@ -1229,7 +1229,11 @@ static qboolean createShaders(void)
 		R_Printf(PRINT_ALL, "WARNING: Failed to create shader program for color-only 2D rendering!\n");
 		return false;
 	}
-
+	if(!initShader2D(&gl4state.si2Dtinted, vertexSrc2D, fragmentSrc2Dtinted))
+	{
+		Com_Printf("WARNING: Failed to create shader program for tinted 2D rendering!\n");
+		return false;
+	}
 	if(!initShader2D(&gl4state.si2DpostProcess, vertexSrc2D, fragmentSrc2Dpostprocess))
 	{
 		R_Printf(PRINT_ALL, "WARNING: Failed to create shader program to render framebuffer object!\n");

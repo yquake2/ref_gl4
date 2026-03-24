@@ -433,13 +433,13 @@ GL4_LoadPic(char *name, byte *pic, int width, int realwidth,
 	}
 
 	/* Normalize crosshair images to white so that color tinting via
-	 * multiplication produces the correct hue regardless of the
-	 * original palette color used in the crosshair PCX. */
+	   multiplication produces the correct hue regardless of the
+	   original palette color used in the crosshair PCX. */
 	if (bits == 8 && (strcmp(name, "pics/ch1.pcx") == 0 ||
-	                  strcmp(name, "pics/ch2.pcx") == 0 ||
-	                  strcmp(name, "pics/ch3.pcx") == 0))
+			strcmp(name, "pics/ch2.pcx") == 0 ||
+			strcmp(name, "pics/ch3.pcx") == 0))
 	{
-		int i, best = 0;
+		int best = 0;
 		float best_lum = 0;
 
 		for (i = 0; i < 255; i++)

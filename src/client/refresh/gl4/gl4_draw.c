@@ -219,12 +219,12 @@ GL4_Draw_PicScaled(int x, int y, char *pic, float factor)
 }
 
 void
-GL4_Draw_PicScaledCol(int x, int y, char *pic, float factor, float color[3])
+GL4_Draw_PicScaledCol(int x, int y, const char *pic, float factor, const float color[3])
 {
 	gl4image_t *gl = R_FindPic(pic, (findimage_t)GL4_FindImage);
 	if (!gl)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		Com_Printf("Can't find pic: %s\n", pic);
 		return;
 	}
 
