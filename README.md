@@ -4,10 +4,10 @@ This is an OpenGL 4.6 renderer library for Yamagi Quake II.
 
 ## Compilation
 
-You'll need:
+You'll need (use the buildenv package from yq2 compilation instructions):
 * clang or gcc,
 * GNU Make,
-* SDL2 with `sdl2-config`,
+* SDL3 with `sdl3-config`,
 * opengl-headers
 * libpthread (unix-like systems only)
 
@@ -31,6 +31,8 @@ Additionally, the GL4 renderer has several enhancements.
 
 Generally, you'll find the performance over the last version is around 100% better due to these changes.  There will be no stutters, micro-stutters or frame drops of any kind.
 I tested it on a 10 year old mid-level laptop and still got over 250fps whereas before it used to dip down to the 50's with explosions and lots of particles.
+
+As stated, the GL4 renderer is multithreaded and extremely well optimised against any form of micro stuttering.  More advanced features will be coming in the future also.
 
 Below are examples:
 
