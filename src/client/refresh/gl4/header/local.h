@@ -596,4 +596,26 @@ extern cvar_t *r_validation;
 
 extern cvar_t *gl4_debugcontext;
 
+/* bloom */
+enum {
+	GL4_BINDINGPOINT_UNICOMMON,
+	GL4_BINDINGPOINT_UNI2D,
+	GL4_BINDINGPOINT_UNI3D,
+	GL4_BINDINGPOINT_UNILIGHTS
+};
+
+extern gl4ShaderInfo_t gl4_bloomBright;
+extern gl4ShaderInfo_t gl4_bloomBlur;
+extern gl4ShaderInfo_t gl4_bloomComposite;
+
+extern cvar_t *r_bloom;
+
+GLuint GL4_ApplyBloom(GLuint sceneTex, int sceneW, int sceneH);
+
+qboolean initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragSrc);
+qboolean GL4_InitBloomShaders(void);
+
+void GL4_BloomShutdown(void);
+void GL4_ShutdownBloomShaders(void);
+
 #endif /* SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_ */

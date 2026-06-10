@@ -71,6 +71,10 @@ int c_brush_polys, c_alias_polys;
 
 static float v_blend[4]; /* final blending color */
 
+static qboolean bloomInit = false;
+static GLuint sceneFBO = 0, sceneColorTex = 0, sceneDepthRBO = 0;
+static GLuint fullscreenVAO = 0, fullscreenVBO = 0;
+
 int gl4_viewcluster, gl4_viewcluster2, gl4_oldviewcluster, gl4_oldviewcluster2;
 
 const hmm_mat4 gl4_identityMat4 = {{
@@ -79,6 +83,11 @@ const hmm_mat4 gl4_identityMat4 = {{
 		{0, 0, 1, 0},
 		{0, 0, 0, 1},
 }};
+
+GLenum drawBuf = GL_COLOR_ATTACHMENT0;
+
+/* bloom control */
+cvar_t *r_bloom;
 
 cvar_t *gl_msaa_samples;
 cvar_t *r_vsync;
@@ -234,6 +243,9 @@ GL4_Register(void)
 	r_fixsurfsky = ri.Cvar_Get("r_fixsurfsky", "0", CVAR_ARCHIVE);
 	r_palettedtexture = ri.Cvar_Get("r_palettedtexture", "0", 0);
 	r_validation = ri.Cvar_Get("r_validation", "0", CVAR_ARCHIVE);
+
+	/* bloom control */
+	r_bloom = ri.Cvar_Get("r_bloom", "1", CVAR_ARCHIVE);
 
 	/* don't bilerp characters and crosshairs */
 	gl_nolerp_list = ri.Cvar_Get("r_nolerp_list", "pics/conchars.pcx pics/ch1.pcx pics/ch2.pcx pics/ch3.pcx", CVAR_ARCHIVE);
@@ -634,6 +646,16 @@ GL4_Init(void)
 		return false;
 	}
 
+	if (GL4_InitBloomShaders())
+	{
+		R_Printf(PRINT_ALL, "Loading bloom shaders succeeded.\n");
+	}
+	else
+	{
+		R_Printf(PRINT_ALL, "Loading bloom shaders failed.\n");
+		return false;
+	}
+
 	registration_sequence = 1; // from R_InitImages() (everything else from there shouldn't be needed anymore)
 
 	GL4_Mod_Init();
@@ -671,6 +693,8 @@ GL4_Shutdown(void)
 		GL4_SurfShutdown();
 		GL4_Draw_ShutdownLocal();
 		GL4_ShutdownShaders();
+		GL4_BloomShutdown();
+		GL4_ShutdownBloomShaders();
 
 		// free the postprocessing FBO and its renderbuffer and texture
 		if(gl4state.ppFBrbo != 0)
@@ -1456,204 +1480,186 @@ extern int c_visible_lightmaps, c_visible_textures;
 static void
 GL4_RenderView(refdef_t *fd)
 {
-#if 0 // TODO: keep stereo stuff?
-	if ((gl_state.stereo_mode != STEREO_MODE_NONE) && gl_state.camera_separation) {
+    if (r_norefresh->value)
+    {
+        return;
+    }
 
-		qboolean drawing_left_eye = gl_state.camera_separation < 0;
-		switch (gl_state.stereo_mode) {
-			case STEREO_MODE_ANAGLYPH:
-				{
+    gl4_newrefdef = *fd;
 
-					// Work out the colour for each eye.
-					int anaglyph_colours[] = { 0x4, 0x3 }; // Left = red, right = cyan.
+    if (!gl4_worldmodel && !(gl4_newrefdef.rdflags & RDF_NOWORLDMODEL))
+    {
+        ri.Sys_Error(ERR_DROP, "R_RenderView: NULL worldmodel");
+    }
 
-					if (strlen(gl1_stereo_anaglyph_colors->string) == 2) {
-						int eye, colour, missing_bits;
-						// Decode the colour name from its character.
-						for (eye = 0; eye < 2; ++eye) {
-							colour = 0;
-							switch (toupper(gl1_stereo_anaglyph_colors->string[eye])) {
-								case 'B': ++colour; // 001 Blue
-								case 'G': ++colour; // 010 Green
-								case 'C': ++colour; // 011 Cyan
-								case 'R': ++colour; // 100 Red
-								case 'M': ++colour; // 101 Magenta
-								case 'Y': ++colour; // 110 Yellow
-									anaglyph_colours[eye] = colour;
-									break;
-							}
-						}
-						// Fill in any missing bits.
-						missing_bits = ~(anaglyph_colours[0] | anaglyph_colours[1]) & 0x3;
-						for (eye = 0; eye < 2; ++eye) {
-							anaglyph_colours[eye] |= missing_bits;
-						}
-					}
+    if (r_speeds->value)
+    {
+        c_brush_polys = 0;
+        c_alias_polys = 0;
+    }
 
-					// Set the current colour.
-					glColorMask(
-						!!(anaglyph_colours[drawing_left_eye] & 0x4),
-						!!(anaglyph_colours[drawing_left_eye] & 0x2),
-						!!(anaglyph_colours[drawing_left_eye] & 0x1),
-						GL_TRUE
-					);
-				}
-				break;
-			case STEREO_MODE_ROW_INTERLEAVED:
-			case STEREO_MODE_COLUMN_INTERLEAVED:
-			case STEREO_MODE_PIXEL_INTERLEAVED:
-				{
-					qboolean flip_eyes = true;
-					int client_x, client_y;
+    GL4_PushDlights();
 
-					//GLimp_GetClientAreaOffset(&client_x, &client_y);
-					client_x = 0;
-					client_y = 0;
+    if (gl_finish->value)
+    {
+        glFinish();
+    }
 
-					GL4_SetGL2D();
+    if (!bloomInit)
+    {
+        int w = vid.width;
+        int h = vid.height;
 
-					glEnable(GL_STENCIL_TEST);
-					glStencilMask(GL_TRUE);
-					glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        /* color texture + depth renderbuffer */
+        glGenFramebuffers(1, &sceneFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO);
 
-					glStencilOp(GL_REPLACE, GL_KEEP, GL_KEEP);
-					glStencilFunc(GL_NEVER, 0, 1);
+        glGenTextures(1, &sceneColorTex);
+        glBindTexture(GL_TEXTURE_2D, sceneColorTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneColorTex, 0);
 
-					glBegin(GL_QUADS);
-					{
-						glVertex2i(0, 0);
-						glVertex2i(vid.width, 0);
-						glVertex2i(vid.width, vid.height);
-						glVertex2i(0, vid.height);
-					}
-					glEnd();
+        glGenRenderbuffers(1, &sceneDepthRBO);
+        glBindRenderbuffer(GL_RENDERBUFFER, sceneDepthRBO);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, sceneDepthRBO);
 
-					glStencilOp(GL_INVERT, GL_KEEP, GL_KEEP);
-					glStencilFunc(GL_NEVER, 1, 1);
+        /* ensure drawbuffers are set */
+        {
+            glDrawBuffers(1, &drawBuf);
+        }
 
-					glBegin(GL_LINES);
-					{
-						if (gl_state.stereo_mode == STEREO_MODE_ROW_INTERLEAVED || gl_state.stereo_mode == STEREO_MODE_PIXEL_INTERLEAVED) {
-							int y;
-							for (y = 0; y <= vid.height; y += 2) {
-								glVertex2f(0, y - 0.5f);
-								glVertex2f(vid.width, y - 0.5f);
-							}
-							flip_eyes ^= (client_y & 1);
-						}
+        /* check completeness */
+        {
+            GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            if (status != GL_FRAMEBUFFER_COMPLETE)
+            {
+                R_Printf(PRINT_ALL, "GL4_RenderView: sceneFBO incomplete: 0x%X\n", status);
+            }
+        }
 
-						if (gl_state.stereo_mode == STEREO_MODE_COLUMN_INTERLEAVED || gl_state.stereo_mode == STEREO_MODE_PIXEL_INTERLEAVED) {
-							int x;
-							for (x = 0; x <= vid.width; x += 2) {
-								glVertex2f(x - 0.5f, 0);
-								glVertex2f(x - 0.5f, vid.height);
-							}
-							flip_eyes ^= (client_x & 1);
-						}
-					}
-					glEnd();
+        if (fullscreenVAO == 0)
+        {
+            const GLfloat quadVerts[] = {
+                /* X,   Y,    S,  T  (screen space X,Y in pixels) */
+                0.0f, (GLfloat)h, 0.0f, 1.0f,
+                0.0f, 0.0f,       0.0f, 0.0f,
+                (GLfloat)w, (GLfloat)h, 1.0f, 1.0f,
+                (GLfloat)w, 0.0f,        1.0f, 0.0f
+            };
 
-					glStencilMask(GL_FALSE);
-					glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glGenVertexArrays(1, &fullscreenVAO);
+            glBindVertexArray(fullscreenVAO);
 
-					glStencilFunc(GL_EQUAL, drawing_left_eye ^ flip_eyes, 1);
-					glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-				}
-				break;
-			default:
-				break;
-		}
-	}
-#endif // 0 (stereo stuff)
+            glGenBuffers(1, &fullscreenVBO);
+            glBindBuffer(GL_ARRAY_BUFFER, fullscreenVBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(quadVerts), quadVerts, GL_STATIC_DRAW);
 
-	if (r_norefresh->value)
-	{
-		return;
-	}
+            glEnableVertexAttribArray(GL4_ATTRIB_POSITION);
+            glVertexAttribPointer(GL4_ATTRIB_POSITION, 2, GL_FLOAT, GL_FALSE,
+                                  4 * sizeof(GLfloat), (const void*)0);
 
-	gl4_newrefdef = *fd;
+            glEnableVertexAttribArray(GL4_ATTRIB_TEXCOORD);
+            glVertexAttribPointer(GL4_ATTRIB_TEXCOORD, 2, GL_FLOAT, GL_FALSE,
+                                  4 * sizeof(GLfloat), (const void*)(2 * sizeof(GLfloat)));
 
-	if (!gl4_worldmodel && !(gl4_newrefdef.rdflags & RDF_NOWORLDMODEL))
-	{
-		ri.Sys_Error(ERR_DROP, "R_RenderView: NULL worldmodel");
-	}
+            glBindVertexArray(0);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        bloomInit = true;
+    }
 
-	if (r_speeds->value)
-	{
-		c_brush_polys = 0;
-		c_alias_polys = 0;
-	}
+    /* render scene */
+    glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO);
+    glViewport(0, 0, vid.width, vid.height);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	GL4_PushDlights();
+    SetupFrame();
 
-	if (gl_finish->value)
-	{
-		glFinish();
-	}
+    R_SetFrustum(vup, vpn, vright, gl4_origin,
+        gl4_newrefdef.fov_x, gl4_newrefdef.fov_y, frustum);
 
-	SetupFrame();
+    SetupGL();
 
-	R_SetFrustum(vup, vpn, vright, gl4_origin,
-		gl4_newrefdef.fov_x, gl4_newrefdef.fov_y, frustum);
+    GL4_MarkLeaves();
 
-	SetupGL();
+    GL4_DrawWorld();
+    GL4_DrawEntitiesOnList();
+    GL4_DrawParticles();
+    GL4_DrawAlphaSurfaces();
 
-	GL4_MarkLeaves(); /* done here so we know if we're in water */
+    if (r_speeds->value)
+    {
+        R_Printf(PRINT_ALL, "%4i wpoly %4i epoly %i tex %i lmaps\n",
+                c_brush_polys, c_alias_polys, c_visible_textures,
+                c_visible_lightmaps);
+    }
 
-	GL4_DrawWorld();
+    /* apply bloom */
+    GL4_SetGL2D();
 
-	GL4_DrawEntitiesOnList();
+    if (r_bloom && r_bloom->value != 0.0f && gl4_bloomBright.shaderProgram && gl4_bloomBlur.shaderProgram && gl4_bloomComposite.shaderProgram)
+    {
+        GLuint compositeTex = GL4_ApplyBloom(sceneColorTex, vid.width, vid.height);
 
-	GL4_DrawParticles();
+        if (compositeTex != 0)
+        {
+            /* draw to framebuffer */
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, vid.width, vid.height);
+            glClear(GL_COLOR_BUFFER_BIT);
 
-	GL4_DrawAlphaSurfaces();
+            /* draw fullscreen quad */
+            glDisable(GL_DEPTH_TEST);
+            GL4_UseProgram(gl4state.si2DpostProcess.shaderProgram);
+            GL4_Bind(compositeTex);
 
-	// Note: R_Flash() is now GL4_Draw_Flash() and called from GL4_RenderFrame()
+            if (gl4state.si2DpostProcess.uniLmScalesOrTime != -1)
+                glUniform1f(gl4state.si2DpostProcess.uniLmScalesOrTime, gl4_newrefdef.time);
 
-	if (r_speeds->value)
-	{
-		R_Printf(PRINT_ALL, "%4i wpoly %4i epoly %i tex %i lmaps\n",
-				c_brush_polys, c_alias_polys, c_visible_textures,
-				c_visible_lightmaps);
-	}
+            if (gl4state.si2DpostProcess.uniVblend != -1)
+            {
+                float zeroBlend[4] = {0,0,0,0};
+                glUniform4fv(gl4state.si2DpostProcess.uniVblend, 1, zeroBlend);
+            }
 
-#if 0 // TODO: stereo stuff
-	switch (gl_state.stereo_mode) {
-		case STEREO_MODE_NONE:
-			break;
-		case STEREO_MODE_ANAGLYPH:
-			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-			break;
-		case STEREO_MODE_ROW_INTERLEAVED:
-		case STEREO_MODE_COLUMN_INTERLEAVED:
-		case STEREO_MODE_PIXEL_INTERLEAVED:
-			glDisable(GL_STENCIL_TEST);
-			break;
-		default:
-			break;
-	}
-#endif // 0
+            glBindVertexArray(fullscreenVAO);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glBindVertexArray(0);
+
+            /* cleanup */
+            GL4_Bind(0);
+            glEnable(GL_DEPTH_TEST);
+            glDeleteTextures(1, &compositeTex);
+        }
+        else
+        {
+            /* blit to default framebuffer */
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, sceneFBO);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            glBlitFramebuffer(0, 0, vid.width, vid.height,
+                              0, 0, vid.width, vid.height,
+                              GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        }
+    }
+    else
+    {
+        /* bloom disabled */
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, sceneFBO);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, vid.width, vid.height,
+                          0, 0, vid.width, vid.height,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    }
 }
 
-#if 0 // TODO: stereo
-enum opengl_special_buffer_modes
-GL4_GetSpecialBufferModeForStereoMode(enum stereo_modes stereo_mode) {
-	switch (stereo_mode) {
-		case STEREO_MODE_NONE:
-		case STEREO_SPLIT_HORIZONTAL:
-		case STEREO_SPLIT_VERTICAL:
-		case STEREO_MODE_ANAGLYPH:
-			return OPENGL_SPECIAL_BUFFER_MODE_NONE;
-		case STEREO_MODE_OPENGL:
-			return OPENGL_SPECIAL_BUFFER_MODE_STEREO;
-		case STEREO_MODE_ROW_INTERLEAVED:
-		case STEREO_MODE_COLUMN_INTERLEAVED:
-		case STEREO_MODE_PIXEL_INTERLEAVED:
-			return OPENGL_SPECIAL_BUFFER_MODE_STENCIL;
-	}
-	return OPENGL_SPECIAL_BUFFER_MODE_NONE;
-}
-#endif // 0
 
 static void
 GL4_SetLightLevel(entity_t *currententity)
