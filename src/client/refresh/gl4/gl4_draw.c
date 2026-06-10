@@ -321,27 +321,19 @@ GL4_DrawFrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const f
     }
     else
     {
-        /* normal coordinate mapping */
         fsQuad[0]  = (GLfloat)x;       fsQuad[1]  = (GLfloat)(y + h); fsQuad[2]  = 0.0f; fsQuad[3]  = 1.0f;
         fsQuad[4]  = (GLfloat)x;       fsQuad[5]  = (GLfloat)y;       fsQuad[6]  = 0.0f; fsQuad[7]  = 0.0f;
         fsQuad[8]  = (GLfloat)(x + w); fsQuad[9]  = (GLfloat)(y + h); fsQuad[10] = 1.0f; fsQuad[11] = 1.0f;
         fsQuad[12] = (GLfloat)(x + w); fsQuad[13] = (GLfloat)y;       fsQuad[14] = 1.0f; fsQuad[15] = 0.0f;
     }
 
-    /* bind the VAO that was configured for textured 2D rendering */
     GL4_BindVAO(vao2D);
-
-    /* bind the shared 2D VBO and upload the quad */
     GL4_BindVBO(vbo2D);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(fsQuad), fsQuad, GL_STREAM_DRAW);
 
-    /* draw the quad (VAO already contains attribute pointers) */
+    glBufferData(GL_ARRAY_BUFFER, sizeof(fsQuad), fsQuad, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    /* unbind VAO to avoid accidental state leakage (optional) */
     GL4_BindVAO(0);
-
-    /* delete the temporary bloom composite texture to fully prevent frame leakage */
     if (finalTex != fboTexture)
     {
         glDeleteTextures(1, &finalTex);

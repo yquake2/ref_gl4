@@ -1545,7 +1545,7 @@ GL4_RenderView(refdef_t *fd)
         if (fullscreenVAO == 0)
         {
             const GLfloat quadVerts[] = {
-                /* X,   Y,    S,  T  (screen space X,Y in pixels) */
+                /* X, Y, S, T */
                 0.0f, (GLfloat)h, 0.0f, 1.0f,
                 0.0f, 0.0f,       0.0f, 0.0f,
                 (GLfloat)w, (GLfloat)h, 1.0f, 1.0f,
