@@ -30,9 +30,6 @@ Additionally, the GL4 renderer has several enhancements, both graphical and perf
 * Shader UBO efficiency enhancements
 * Bloom lighting
 
-Generally, you'll find the performance over the last version is around 100% better due to these changes.  There will be no stutters, micro-stutters or frame drops of any kind.
-I tested it on a 10 year old mid-level laptop and still got over 250fps whereas before it used to dip down to the 50's with explosions and lots of particles.
-
 As stated, the GL4 renderer is multithreaded and extremely well optimised against any form of micro stuttering.  More advanced features will be coming in the future also.
 
 If you have run into issues, please attach output logs with OS/driver version
